@@ -14,15 +14,20 @@
       canvas { width: 100% !important; height: 100% !important; max-width: none; max-height: none; object-fit: cover; }
     }
 
-    /* 靜音開關：右上角 */
+    /* 右上角：切換鏡頭 + 靜音 */
+    #btnSwitchCamera,
     #btnMute {
-      position: absolute; top: 16px; right: 16px; z-index: 160;
+      position: absolute; top: 16px; z-index: 160;
       width: 56px; height: 56px; border-radius: 50%;
       background: rgba(0,0,0,0.6); border: 2px solid rgba(255,255,255,0.5);
       font-size: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center;
       padding: 0; line-height: 1;
     }
+    #btnSwitchCamera { right: 80px; }
+    #btnMute { right: 16px; }
+    #btnSwitchCamera:hover,
     #btnMute:hover { background: rgba(0,0,0,0.8); }
+    #btnSwitchCamera:active,
     #btnMute:active { transform: scale(0.95); }
 
     /* 全螢幕遮罩 */
@@ -139,6 +144,7 @@
 </head>
 
 <body>
+  <button type="button" id="btnSwitchCamera" title="切換鏡頭" aria-label="切換前後鏡頭">🔄</button>
   <button type="button" id="btnMute" title="切換語音" aria-label="切換語音">🔊</button>
   <div id="status">正在啟動相機...<br><span style="font-size:14px; font-weight:normal;">請允許相機權限</span></div>
 
@@ -218,6 +224,7 @@
     const uploadStatus = document.getElementById('uploadStatus');
     const btnRetry = document.getElementById('btnRetry');
     const btnMute = document.getElementById('btnMute');
+    const btnSwitchCamera = document.getElementById('btnSwitchCamera');
 
     const TARGET_COUNT = 5;
     const ANGLE_SIT = 85;
@@ -237,6 +244,8 @@
     let isMuted = false;
     let userName = '';
     let userAge = 65;
+    let useFrontCamera = true; // 預設前鏡頭 (user)，自拍用
+    let cameraInstance = null;
 
     function speak(text) {
       if (isMuted || !text || !text.trim()) return;
@@ -541,15 +550,46 @@
 
     pose.onResults(onResults);
 
-    const camera = new Camera(videoElement, {
-      onFrame: async () => {
-        await pose.send({ image: videoElement });
-      },
-      width: 1280,
-      height: 720,
-      facingMode: 'environment'
+    /** 停止目前攝影機串流 */
+    function stopCameraStream() {
+      if (videoElement.srcObject) {
+        videoElement.srcObject.getTracks().forEach((t) => t.stop());
+        videoElement.srcObject = null;
+      }
+    }
+
+    /**
+     * 啟動攝影機（或切換鏡頭時重新啟動）。
+     * @param {boolean} showSwitchingUI - 若為 true，顯示「切換中...」並在串流就緒後隱藏
+     */
+    function startCamera(showSwitchingUI = false) {
+      if (showSwitchingUI) {
+        statusDiv.classList.remove('hidden');
+        statusDiv.textContent = '切換中...';
+        videoElement.addEventListener('loadedmetadata', () => {
+          statusDiv.classList.add('hidden');
+        }, { once: true });
+      }
+
+      stopCameraStream();
+
+      cameraInstance = new Camera(videoElement, {
+        onFrame: async () => {
+          await pose.send({ image: videoElement });
+        },
+        width: 1280,
+        height: 720,
+        facingMode: useFrontCamera ? 'user' : 'environment'
+      });
+      cameraInstance.start();
+    }
+
+    btnSwitchCamera.addEventListener('click', () => {
+      useFrontCamera = !useFrontCamera;
+      startCamera(true);
     });
-    camera.start();
+
+    startCamera(false);
   </script>
 </body>
 </html>
