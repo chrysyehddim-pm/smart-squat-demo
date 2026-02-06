@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Smart Squat Demo - 5次坐站測試</title>
+  <style>
+    body { margin: 0; background-color: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; -webkit-tap-highlight-color: transparent; }
+    canvas { position: absolute; max-width: 100%; max-height: 100%; }
+    video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+    /* 手機：影片/畫布滿版 */
+    @media (max-width: 768px) {
+      canvas { width: 100% !important; height: 100% !important; max-width: none; max-height: none; object-fit: cover; }
+    }
+
+    /* 靜音開關：右上角 */
+    #btnMute {
+      position: absolute; top: 16px; right: 16px; z-index: 160;
+      width: 56px; height: 56px; border-radius: 50%;
+      background: rgba(0,0,0,0.6); border: 2px solid rgba(255,255,255,0.5);
+      font-size: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      padding: 0; line-height: 1;
+    }
+    #btnMute:hover { background: rgba(0,0,0,0.8); }
+    #btnMute:active { transform: scale(0.95); }
+
+    /* 全螢幕遮罩 */
+    .overlay {
+      position: absolute; inset: 0; display: flex; justify-content: center; align-items: center;
+      background: rgba(0,0,0,0.5); z-index: 150;
+      pointer-events: none;
+      opacity: 0;
+    }
+    .overlay.active { pointer-events: auto; opacity: 1; }
+
+    /* 歡迎頁：受測者資料表單 */
+    .welcome-form {
+      display: flex; flex-direction: column; align-items: center; gap: clamp(20px, 5vw, 28px);
+      width: 100%; max-width: 400px; padding: 0 24px;
+    }
+    .welcome-form label { display: block; color: rgba(255,255,255,0.9); font-size: clamp(18px, 4vw, 22px); margin-bottom: 8px; }
+    .welcome-form input {
+      width: 100%; padding: clamp(16px, 4vw, 22px) clamp(20px, 5vw, 28px);
+      font-size: clamp(22px, 5vw, 28px); color: #fff; background: rgba(0,0,0,0.6);
+      border: 2px solid rgba(255,255,255,0.3); border-radius: 14px;
+      box-sizing: border-box;
+    }
+    .welcome-form input::placeholder { color: rgba(255,255,255,0.5); }
+    .welcome-form input:focus { outline: none; border-color: #00ff88; }
+
+    /* [ 開始測驗 ] 大按鈕（手機更大） */
+    #btnStart {
+      padding: clamp(24px, 6vw, 36px) clamp(48px, 12vw, 72px);
+      font-size: clamp(28px, 7vw, 40px); font-weight: bold; color: #000; background: #00ff88;
+      border: none; border-radius: 20px; cursor: pointer; box-shadow: 0 8px 24px rgba(0,255,136,0.4);
+      transition: transform 0.1s, background 0.2s;
+      min-height: 64px;
+    }
+    #btnStart:hover:not(:disabled) { background: #33ffaa; transform: scale(1.02); }
+    #btnStart:active:not(:disabled) { transform: scale(0.98); }
+    #btnStart:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* 倒數數字 */
+    #countdownNum {
+      font-size: clamp(80px, 25vw, 140px); font-weight: bold; color: #fff;
+      text-shadow: 0 0 40px rgba(0,255,136,0.8);
+      display: none;
+    }
+
+    /* 計數器 + 計時 */
+    #counter {
+      position: absolute; top: clamp(16px, 4vw, 24px); left: clamp(16px, 4vw, 24px);
+      color: #fff; font-family: sans-serif; font-size: clamp(36px, 8vw, 52px); font-weight: bold;
+      background: rgba(0,0,0,0.7); padding: clamp(12px, 3vw, 20px) clamp(20px, 4vw, 28px); border-radius: 16px;
+      z-index: 100; line-height: 1.2;
+    }
+    #counter span { color: #00ff88; }
+
+    #timer {
+      position: absolute; top: clamp(16px, 4vw, 24px); right: clamp(16px, 4vw, 24px);
+      color: #00ff88; font-family: monospace; font-size: clamp(28px, 6vw, 40px); font-weight: bold;
+      background: rgba(0,0,0,0.7); padding: clamp(12px, 3vw, 18px) clamp(18px, 4vw, 24px); border-radius: 16px;
+      z-index: 100;
+    }
+
+    /* 狀態提示 */
+    #stateText {
+      position: absolute; top: 18%; left: 50%; transform: translateX(-50%);
+      color: #fff; font-family: sans-serif; font-size: clamp(28px, 6vw, 42px); font-weight: bold;
+      background: rgba(0,0,0,0.65); padding: clamp(16px, 4vw, 24px) clamp(24px, 6vw, 44px); border-radius: 20px;
+      z-index: 100; text-align: center; white-space: nowrap;
+    }
+
+    #angleDebug {
+      position: absolute; bottom: clamp(16px, 4vw, 24px); left: 50%; transform: translateX(-50%);
+      color: #aaa; font-family: monospace; font-size: clamp(14px, 3.5vw, 20px);
+      background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 10px;
+      z-index: 100;
+    }
+
+    /* 結果卡片 */
+    #resultCard {
+      display: none;
+      flex-direction: column; align-items: center; gap: clamp(16px, 4vw, 28px);
+      background: rgba(0,0,0,0.85); padding: clamp(32px, 8vw, 52px) clamp(40px, 10vw, 60px); border-radius: 24px;
+      border: 2px solid #00ff88; box-shadow: 0 0 40px rgba(0,255,136,0.2);
+      max-width: 92%;
+    }
+    #resultCard.show { display: flex; }
+    #resultCard h2 { color: #fff; font-size: clamp(24px, 6vw, 32px); margin: 0 0 8px 0; }
+    #resultCard .time { color: #00ff88; font-size: clamp(32px, 8vw, 48px); font-weight: bold; margin: 8px 0; }
+    #resultCard .comment { color: #ddd; font-size: clamp(20px, 5vw, 28px); margin: 12px 0; }
+    #uploadStatus { color: #aaa; font-size: clamp(16px, 4vw, 20px); margin-top: 4px; min-height: 1.5em; }
+    #btnRetry {
+      padding: clamp(20px, 5vw, 28px) clamp(40px, 10vw, 52px);
+      font-size: clamp(24px, 6vw, 32px); font-weight: bold; color: #000; background: #00ff88;
+      border: none; border-radius: 16px; cursor: pointer; margin-top: 8px;
+      transition: transform 0.1s, background 0.2s;
+    }
+    #btnRetry:hover { background: #33ffaa; transform: scale(1.02); }
+    #btnRetry:active { transform: scale(0.98); }
+
+    #status {
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      color: white; font-family: sans-serif; font-size: clamp(18px, 4vw, 22px); font-weight: bold;
+      background: rgba(0,0,0,0.6); padding: 10px 20px; border-radius: 30px;
+      z-index: 101; text-align: center;
+    }
+    #status.hidden { display: none; }
+
+    .hidden { display: none !important; }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+</head>
+
+<body>
+  <button type="button" id="btnMute" title="切換語音" aria-label="切換語音">🔊</button>
+  <div id="status">正在啟動相機...<br><span style="font-size:14px; font-weight:normal;">請允許相機權限</span></div>
+
+  <div id="overlayWelcome" class="overlay active">
+    <div class="welcome-form">
+      <label for="inputName">姓名 / 暱稱</label>
+      <input type="text" id="inputName" placeholder="請輸入姓名或暱稱" autocomplete="name" />
+      <label for="inputAge">年齡</label>
+      <input type="number" id="inputAge" placeholder="65" min="1" max="120" value="65" />
+      <button type="button" id="btnStart">開始測驗</button>
+    </div>
+  </div>
+
+  <div id="overlayCountdown" class="overlay">
+    <div id="countdownNum"></div>
+  </div>
+
+  <div id="counter" class="hidden">0 / 5</div>
+  <div id="timer" class="hidden">0.00 s</div>
+  <div id="stateText" class="hidden">請坐下 🪑</div>
+  <div id="angleDebug" class="hidden">膝蓋角度: --°</div>
+
+  <div id="overlayResult" class="overlay">
+    <div id="resultCard">
+      <h2>測試完成</h2>
+      <div class="time" id="resultTime">總耗時：0.00 秒</div>
+      <div class="comment" id="resultComment"></div>
+      <div id="uploadStatus" aria-live="polite"></div>
+      <button type="button" id="btnRetry">再測一次</button>
+    </div>
+  </div>
+
+  <video id="input_video" playsinline></video>
+  <canvas id="output_canvas"></canvas>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import { getFirestore, collection, addDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+
+    // ---------- Firebase 設定（請填入您的金鑰） ----------
+    const firebaseConfig = {
+        apiKey: "AIzaSyB6wcFs5gSiNDCSweKcEzgRpbIAAb5I3Vo",
+        authDomain: "smart-squat-health.firebaseapp.com",
+        projectId: "smart-squat-health",
+        storageBucket: "smart-squat-health.firebasestorage.app",
+        messagingSenderId: "475970550783",
+        appId: "1:475970550783:web:2d7dcacb2e55b562eb05ca",
+        measurementId: "G-P3YYVH06LB"
+    };
+
+    let db = null;
+    try {
+      const app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+    } catch (e) {
+      console.warn('Firebase 未設定或初始化失敗，將略過上傳功能。', e);
+    }
+
+    const videoElement = document.getElementById('input_video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusDiv = document.getElementById('status');
+    const counterDiv = document.getElementById('counter');
+    const timerDiv = document.getElementById('timer');
+    const stateTextDiv = document.getElementById('stateText');
+    const angleDebugDiv = document.getElementById('angleDebug');
+    const overlayWelcome = document.getElementById('overlayWelcome');
+    const overlayCountdown = document.getElementById('overlayCountdown');
+    const countdownNum = document.getElementById('countdownNum');
+    const btnStart = document.getElementById('btnStart');
+    const inputName = document.getElementById('inputName');
+    const inputAge = document.getElementById('inputAge');
+    const overlayResult = document.getElementById('overlayResult');
+    const resultCard = document.getElementById('resultCard');
+    const resultTime = document.getElementById('resultTime');
+    const resultComment = document.getElementById('resultComment');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const btnRetry = document.getElementById('btnRetry');
+    const btnMute = document.getElementById('btnMute');
+
+    const TARGET_COUNT = 5;
+    const ANGLE_SIT = 85;
+    const ANGLE_STAND = 165;
+    const COUNTDOWN_SEC = 5;
+
+    const LEFT_HIP = 23, LEFT_KNEE = 25, LEFT_ANKLE = 27;
+    const RIGHT_HIP = 24, RIGHT_KNEE = 26, RIGHT_ANKLE = 28;
+
+    let phase = 'welcome';
+    let currentState = null;
+    let repCount = 0;
+    let hasShownReady = false;
+    let startTime = null;
+    let endTime = null;
+    let timerAnimationId = null;
+    let isMuted = false;
+    let userName = '';
+    let userAge = 65;
+
+    function speak(text) {
+      if (isMuted || !text || !text.trim()) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text.trim());
+      u.lang = 'zh-TW';
+      u.rate = 0.95;
+      u.volume = 1;
+      window.speechSynthesis.speak(u);
+    }
+
+    function unlockTTS() {
+      if (isMuted) return;
+      const u = new SpeechSynthesisUtterance('\u200B');
+      u.lang = 'zh-TW';
+      u.volume = 0.01;
+      window.speechSynthesis.speak(u);
+    }
+
+    function updateMuteButton() {
+      btnMute.textContent = isMuted ? '🔇' : '🔊';
+      btnMute.setAttribute('aria-label', isMuted ? '開啟語音' : '靜音');
+    }
+    btnMute.addEventListener('click', () => {
+      isMuted = !isMuted;
+      updateMuteButton();
+    });
+    updateMuteButton();
+
+    function beep() {
+      if (isMuted) return;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 800;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        gain.gain.value = 0.3;
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.15);
+      } catch (e) {}
+    }
+
+    function angleBetweenThreePoints(p1, p2, p3) {
+      const v1 = { x: p1.x - p2.x, y: p1.y - p2.y };
+      const v2 = { x: p3.x - p2.x, y: p3.y - p2.y };
+      const len1 = Math.hypot(v1.x, v1.y);
+      const len2 = Math.hypot(v2.x, v2.y);
+      if (len1 < 1e-6 || len2 < 1e-6) return null;
+      const cos = (v1.x * v2.x + v1.y * v2.y) / (len1 * len2);
+      const rad = Math.acos(Math.max(-1, Math.min(1, cos)));
+      return (rad * 180 / Math.PI);
+    }
+
+    function getKneeAngle(landmarks) {
+      const leftH = landmarks[LEFT_HIP], leftK = landmarks[LEFT_KNEE], leftA = landmarks[LEFT_ANKLE];
+      const rightH = landmarks[RIGHT_HIP], rightK = landmarks[RIGHT_KNEE], rightA = landmarks[RIGHT_ANKLE];
+      const leftVis = (leftH?.visibility ?? 0) + (leftK?.visibility ?? 0) + (leftA?.visibility ?? 0);
+      const rightVis = (rightH?.visibility ?? 0) + (rightK?.visibility ?? 0) + (rightA?.visibility ?? 0);
+      if (leftVis >= rightVis) {
+        return { angle: angleBetweenThreePoints(leftH, leftK, leftA), side: 'left' };
+      } else {
+        return { angle: angleBetweenThreePoints(rightH, rightK, rightA), side: 'right' };
+      }
+    }
+
+    function getComment(seconds) {
+      if (seconds < 12) return '肌力優異 💪';
+      if (seconds > 15) return '請多留意腿部肌力 ⚠️';
+      return '表現良好 👍';
+    }
+
+    /** 上傳用評語代碼 */
+    function getResultCode(seconds) {
+      if (seconds < 12) return 'Excellent';
+      if (seconds > 15) return 'NeedImprovement';
+      return 'Normal';
+    }
+
+    function validateParticipant() {
+      const name = (inputName.value || '').trim();
+      const ageRaw = inputAge.value;
+      const age = ageRaw === '' ? NaN : parseInt(ageRaw, 10);
+      if (!name) return { ok: false, msg: '請輸入姓名或暱稱' };
+      if (!Number.isFinite(age) || age < 1 || age > 120) return { ok: false, msg: '請輸入有效年齡（1–120）' };
+      return { ok: true, name, age };
+    }
+
+    function setStartButtonState() {
+      const v = validateParticipant();
+      btnStart.disabled = !v.ok;
+    }
+    inputName.addEventListener('input', setStartButtonState);
+    inputName.addEventListener('blur', setStartButtonState);
+    inputAge.addEventListener('input', setStartButtonState);
+    inputAge.addEventListener('blur', setStartButtonState);
+    setStartButtonState();
+
+    function startCountdown() {
+      const v = validateParticipant();
+      if (!v.ok) {
+        alert(v.msg);
+        return;
+      }
+      userName = v.name;
+      userAge = v.age;
+
+      phase = 'countdown';
+      overlayWelcome.classList.remove('active');
+      overlayCountdown.classList.add('active');
+      countdownNum.style.display = 'block';
+
+      unlockTTS();
+
+      let n = COUNTDOWN_SEC;
+      countdownNum.textContent = n;
+      speak(String(n));
+      beep();
+
+      const iv = setInterval(() => {
+        n--;
+        if (n <= 0) {
+          clearInterval(iv);
+          speak('開始');
+          countdownNum.style.display = 'none';
+          overlayCountdown.classList.remove('active');
+          phase = 'testing';
+          startTime = performance.now();
+          endTime = null;
+          counterDiv.classList.remove('hidden');
+          timerDiv.classList.remove('hidden');
+          stateTextDiv.classList.remove('hidden');
+          angleDebugDiv.classList.remove('hidden');
+          return;
+        }
+        countdownNum.textContent = n;
+        speak(String(n));
+        beep();
+      }, 1000);
+    }
+
+    function updateTimer() {
+      if (phase !== 'testing' || startTime == null) return;
+      const elapsed = (performance.now() - startTime) / 1000;
+      timerDiv.textContent = elapsed.toFixed(2) + ' s';
+      timerAnimationId = requestAnimationFrame(updateTimer);
+    }
+
+    async function uploadRecord(seconds) {
+      uploadStatus.textContent = '☁️ 數據上傳中...';
+      if (!db) {
+        uploadStatus.textContent = '';
+        return;
+      }
+      try {
+        await addDoc(collection(db, 'squat_records'), {
+          name: userName,
+          age: userAge,
+          duration: Math.round(seconds * 100) / 100,
+          timestamp: serverTimestamp(),
+          result: getResultCode(seconds),
+          platform: 'Web Demo'
+        });
+        uploadStatus.textContent = '✅ 數據已雲端儲存';
+      } catch (err) {
+        console.error('上傳失敗', err);
+        uploadStatus.textContent = '❌ 上傳失敗，請稍後再試';
+      }
+    }
+
+    function showResult() {
+      if (endTime == null || startTime == null) return;
+      const seconds = (endTime - startTime) / 1000;
+      phase = 'result';
+      if (timerAnimationId != null) {
+        cancelAnimationFrame(timerAnimationId);
+        timerAnimationId = null;
+      }
+      counterDiv.classList.add('hidden');
+      timerDiv.classList.add('hidden');
+      stateTextDiv.classList.add('hidden');
+      angleDebugDiv.classList.add('hidden');
+
+      resultTime.textContent = '總耗時：' + seconds.toFixed(2) + ' 秒';
+      resultComment.textContent = getComment(seconds);
+      uploadStatus.textContent = '';
+      overlayResult.classList.add('active');
+      resultCard.classList.add('show');
+
+      speak('測驗結束，總共花費 ' + seconds.toFixed(1) + ' 秒');
+
+      uploadRecord(seconds);
+    }
+
+    function resetTest() {
+      phase = 'welcome';
+      currentState = null;
+      repCount = 0;
+      startTime = null;
+      endTime = null;
+      if (timerAnimationId != null) {
+        cancelAnimationFrame(timerAnimationId);
+        timerAnimationId = null;
+      }
+      overlayResult.classList.remove('active');
+      resultCard.classList.remove('show');
+      uploadStatus.textContent = '';
+      overlayWelcome.classList.add('active');
+      counterDiv.classList.add('hidden');
+      timerDiv.classList.add('hidden');
+      stateTextDiv.classList.add('hidden');
+      angleDebugDiv.classList.add('hidden');
+      timerDiv.textContent = '0.00 s';
+      counterDiv.innerHTML = '<span>0</span> / ' + TARGET_COUNT;
+      setStartButtonState();
+    }
+
+    function onResults(results) {
+      if (!hasShownReady) {
+        hasShownReady = true;
+        statusDiv.classList.add('hidden');
+      }
+
+      canvasElement.width = videoElement.videoWidth;
+      canvasElement.height = videoElement.videoHeight;
+
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      let kneeAngle = null;
+      if (results.poseLandmarks && phase === 'testing') {
+        const kneeInfo = getKneeAngle(results.poseLandmarks);
+        kneeAngle = kneeInfo.angle;
+
+        if (kneeAngle != null) {
+          let newState = currentState;
+          if (kneeAngle < ANGLE_SIT) newState = 'Sit';
+          else if (kneeAngle > ANGLE_STAND) newState = 'Stand';
+
+          if (newState !== currentState) {
+            if (currentState === 'Sit' && newState === 'Stand') {
+              repCount = Math.min(repCount + 1, TARGET_COUNT);
+              speak(repCount + ' 下');
+              if (repCount >= TARGET_COUNT) {
+                endTime = performance.now();
+                showResult();
+              }
+            }
+            currentState = newState;
+          }
+        }
+
+        drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS,
+                       { color: '#00FF00', lineWidth: 4 });
+        drawLandmarks(canvasCtx, results.poseLandmarks,
+                      { color: '#FF0000', lineWidth: 2, radius: 4 });
+      } else if (results.poseLandmarks) {
+        drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS,
+                       { color: '#00FF00', lineWidth: 4 });
+        drawLandmarks(canvasCtx, results.poseLandmarks,
+                      { color: '#FF0000', lineWidth: 2, radius: 4 });
+      }
+
+      if (phase === 'testing') {
+        counterDiv.innerHTML = '<span>' + repCount + '</span> / ' + TARGET_COUNT;
+        if (timerAnimationId == null) timerAnimationId = requestAnimationFrame(updateTimer);
+
+        if (repCount >= TARGET_COUNT) {
+          // showResult 已在上方呼叫
+        } else if (currentState === 'Sit') {
+          stateTextDiv.textContent = '請起立 ⬆️';
+        } else if (currentState === 'Stand') {
+          stateTextDiv.textContent = '請坐下 🪑';
+        } else {
+          stateTextDiv.textContent = kneeAngle != null ? '請坐下 🪑' : '請讓全身入鏡';
+        }
+        angleDebugDiv.textContent = '膝蓋角度: ' + (kneeAngle != null ? kneeAngle.toFixed(1) + '°' : '--°');
+      }
+
+      canvasCtx.restore();
+    }
+
+    btnStart.addEventListener('click', () => {
+      if (phase !== 'welcome') return;
+      startCountdown();
+    });
+
+    btnRetry.addEventListener('click', resetTest);
+
+    const pose = new Pose({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    pose.onResults(onResults);
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await pose.send({ image: videoElement });
+      },
+      width: 1280,
+      height: 720,
+      facingMode: 'environment'
+    });
+    camera.start();
+  </script>
+</body>
+</html>
