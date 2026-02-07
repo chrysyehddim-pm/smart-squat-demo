@@ -277,10 +277,10 @@
     const btnTutorialOk = document.getElementById('btnTutorialOk');
 
     const TARGET_COUNT = 5;
-    const ANGLE_SIT = 85;
-    const ANGLE_STAND = 165;
+    const ANGLE_SIT = 100;   // 有明顯彎曲即算坐下（放寬，適應寬鬆褲等）
+    const ANGLE_STAND = 140; // 腿有打直趨勢即算站立（放寬，解決「站直只有 140°」無法計數）
     const COUNTDOWN_SEC = 5;
-    const VISIBILITY_MIN = 0.45;      // 臀/膝/踝三點可見度須皆 > 此值才計入狀態（放寬以適應一般光線）
+    const VISIBILITY_MIN = 0.30;      // 臀/膝/踝可見度門檻（降低以減少角度消失）
     const SIT_MIN_DURATION_MS = 500;  // 坐下至少持續 0.5 秒才允許計數 +1
 
     const LEFT_HIP = 23, LEFT_KNEE = 25, LEFT_ANKLE = 27;
@@ -604,7 +604,12 @@
         } else {
           stateTextDiv.textContent = kneeAngle != null ? '請坐下 🪑' : '請讓全身入鏡';
         }
-        angleDebugDiv.textContent = '膝蓋角度: ' + (kneeAngle != null ? kneeAngle.toFixed(1) + '°' : '--°');
+        const angleStr = kneeAngle != null ? kneeAngle.toFixed(1) + '°' : '--°';
+        let hint = '';
+        if (currentState === 'Sit') hint = ' (等待起立 > 140°)';
+        else if (currentState === 'Stand') hint = ' (等待坐下 < 100°)';
+        else hint = ' (起立 > 140° / 坐下 < 100°)';
+        angleDebugDiv.textContent = '膝蓋角度: ' + angleStr + hint;
       }
 
       canvasCtx.restore();
