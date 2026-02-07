@@ -39,6 +39,32 @@
     }
     .overlay.active { pointer-events: auto; opacity: 1; }
 
+    /* 教學引導頁 */
+    #tutorialCard {
+      display: flex; flex-direction: column; align-items: center; gap: clamp(20px, 5vw, 28px);
+      background: rgba(0,0,0,0.75); padding: clamp(28px, 6vw, 40px) clamp(24px, 6vw, 40px);
+      border-radius: 24px; border: 2px solid rgba(255,255,255,0.2);
+      max-width: 92%; max-height: 90vh; overflow-y: auto;
+    }
+    #tutorialCard h2 {
+      color: #fff; font-size: clamp(22px, 5vw, 28px); margin: 0; text-align: center;
+    }
+    .tutorial-steps {
+      display: flex; flex-direction: column; gap: clamp(14px, 3vw, 20px);
+      color: rgba(255,255,255,0.95); font-size: clamp(16px, 4vw, 20px);
+      line-height: 1.5; text-align: left; width: 100%;
+    }
+    .tutorial-steps .step { display: flex; align-items: flex-start; gap: 12px; }
+    .tutorial-steps .step .emoji { font-size: 1.3em; flex-shrink: 0; }
+    #btnTutorialOk {
+      padding: clamp(20px, 5vw, 28px) clamp(36px, 8vw, 52px);
+      font-size: clamp(20px, 4.5vw, 26px); font-weight: bold; color: #000; background: #00ff88;
+      border: none; border-radius: 16px; cursor: pointer;
+      transition: transform 0.1s, background 0.2s; margin-top: 8px;
+    }
+    #btnTutorialOk:hover { background: #33ffaa; transform: scale(1.02); }
+    #btnTutorialOk:active { transform: scale(0.98); }
+
     /* 歡迎頁：受測者資料表單 */
     .welcome-form {
       display: flex; flex-direction: column; align-items: center; gap: clamp(20px, 5vw, 28px);
@@ -156,7 +182,20 @@
   <button type="button" id="btnMute" title="切換語音" aria-label="切換語音">🔊</button>
   <div id="status">正在啟動相機...<br><span style="font-size:14px; font-weight:normal;">請允許相機權限</span></div>
 
-  <div id="overlayWelcome" class="overlay active">
+  <!-- 教學引導（載入後第一個顯示） -->
+  <div id="overlayTutorial" class="overlay active">
+    <div id="tutorialCard">
+      <h2>歡迎使用 5次坐站測驗</h2>
+      <div class="tutorial-steps">
+        <div class="step"><span class="emoji">📱</span><span>步驟 1：請將手機橫放固定於桌上或架子上。</span></div>
+        <div class="step"><span class="emoji">🪑</span><span>步驟 2：請在距離手機約 2~3 公尺處準備一張椅子。</span></div>
+        <div class="step"><span class="emoji">🧍</span><span>步驟 3：確保您的全身（側面視角）都在畫面中。</span></div>
+      </div>
+      <button type="button" id="btnTutorialOk">我知道了，開始輸入資料</button>
+    </div>
+  </div>
+
+  <div id="overlayWelcome" class="overlay">
     <div class="welcome-form">
       <label for="inputName">姓名 / 暱稱</label>
       <input type="text" id="inputName" placeholder="請輸入姓名或暱稱" autocomplete="name" />
@@ -220,6 +259,7 @@
     const timerDiv = document.getElementById('timer');
     const stateTextDiv = document.getElementById('stateText');
     const angleDebugDiv = document.getElementById('angleDebug');
+    const overlayTutorial = document.getElementById('overlayTutorial');
     const overlayWelcome = document.getElementById('overlayWelcome');
     const overlayCountdown = document.getElementById('overlayCountdown');
     const countdownNum = document.getElementById('countdownNum');
@@ -234,6 +274,7 @@
     const btnRetry = document.getElementById('btnRetry');
     const btnMute = document.getElementById('btnMute');
     const btnSwitchCamera = document.getElementById('btnSwitchCamera');
+    const btnTutorialOk = document.getElementById('btnTutorialOk');
 
     const TARGET_COUNT = 5;
     const ANGLE_SIT = 85;
@@ -568,6 +609,11 @@
 
       canvasCtx.restore();
     }
+
+    btnTutorialOk.addEventListener('click', () => {
+      overlayTutorial.classList.remove('active');
+      overlayWelcome.classList.add('active');
+    });
 
     btnStart.addEventListener('click', () => {
       if (phase !== 'welcome') return;
