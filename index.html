@@ -104,6 +104,14 @@
       z-index: 100;
     }
 
+    /* 信心度不足時的中間黃色提示 */
+    #lowConfidenceHint {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      color: #ffc107; font-size: clamp(18px, 4vw, 24px); font-weight: bold;
+      background: rgba(0,0,0,0.75); padding: 16px 24px; border-radius: 16px;
+      z-index: 100; text-align: center;
+    }
+
     /* 結果卡片 */
     #resultCard {
       display: none;
@@ -166,6 +174,7 @@
   <div id="timer" class="hidden">0.00 s</div>
   <div id="stateText" class="hidden">請坐下 🪑</div>
   <div id="angleDebug" class="hidden">膝蓋角度: --°</div>
+  <div id="lowConfidenceHint" class="hidden" aria-live="polite">⚠️ 請固定手機或退後一點</div>
 
   <div id="overlayResult" class="overlay">
     <div id="resultCard">
@@ -230,6 +239,8 @@
     const ANGLE_SIT = 85;
     const ANGLE_STAND = 165;
     const COUNTDOWN_SEC = 5;
+    const VISIBILITY_MIN = 0.65;      // 臀/膝/踝三點可見度須皆 > 此值才計入狀態
+    const SIT_MIN_DURATION_MS = 500;  // 坐下至少持續 0.5 秒才允許計數 +1
 
     const LEFT_HIP = 23, LEFT_KNEE = 25, LEFT_ANKLE = 27;
     const RIGHT_HIP = 24, RIGHT_KNEE = 26, RIGHT_ANKLE = 28;
@@ -244,8 +255,9 @@
     let isMuted = false;
     let userName = '';
     let userAge = 65;
-    let useFrontCamera = true; // 預設前鏡頭 (user)，自拍用
+    let useFrontCamera = true;
     let cameraInstance = null;
+    let lastSitTime = null;  // 進入「坐下」狀態的時間，用於防抖
 
     function speak(text) {
       if (isMuted || !text || !text.trim()) return;
@@ -301,16 +313,27 @@
       return (rad * 180 / Math.PI);
     }
 
+    /**
+     * 取得膝蓋角度，並檢查臀/膝/踝三點可見度。
+     * 只有三點 visibility 都 > VISIBILITY_MIN 時 confidenceOk 才為 true，才可用於狀態更新。
+     */
     function getKneeAngle(landmarks) {
       const leftH = landmarks[LEFT_HIP], leftK = landmarks[LEFT_KNEE], leftA = landmarks[LEFT_ANKLE];
       const rightH = landmarks[RIGHT_HIP], rightK = landmarks[RIGHT_KNEE], rightA = landmarks[RIGHT_ANKLE];
       const leftVis = (leftH?.visibility ?? 0) + (leftK?.visibility ?? 0) + (leftA?.visibility ?? 0);
       const rightVis = (rightH?.visibility ?? 0) + (rightK?.visibility ?? 0) + (rightA?.visibility ?? 0);
-      if (leftVis >= rightVis) {
-        return { angle: angleBetweenThreePoints(leftH, leftK, leftA), side: 'left' };
-      } else {
-        return { angle: angleBetweenThreePoints(rightH, rightK, rightA), side: 'right' };
-      }
+
+      const useLeft = leftVis >= rightVis;
+      const h = useLeft ? leftH : rightH;
+      const k = useLeft ? leftK : rightK;
+      const a = useLeft ? leftA : rightA;
+
+      const confidenceOk = (h?.visibility ?? 0) > VISIBILITY_MIN &&
+                          (k?.visibility ?? 0) > VISIBILITY_MIN &&
+                          (a?.visibility ?? 0) > VISIBILITY_MIN;
+
+      const angle = confidenceOk ? angleBetweenThreePoints(h, k, a) : null;
+      return { angle, side: useLeft ? 'left' : 'right', confidenceOk };
     }
 
     function getComment(seconds) {
@@ -447,6 +470,7 @@
       repCount = 0;
       startTime = null;
       endTime = null;
+      lastSitTime = null;
       if (timerAnimationId != null) {
         cancelAnimationFrame(timerAnimationId);
         timerAnimationId = null;
@@ -459,6 +483,7 @@
       timerDiv.classList.add('hidden');
       stateTextDiv.classList.add('hidden');
       angleDebugDiv.classList.add('hidden');
+      document.getElementById('lowConfidenceHint')?.classList.add('hidden');
       timerDiv.textContent = '0.00 s';
       counterDiv.innerHTML = '<span>0</span> / ' + TARGET_COUNT;
       setStartButtonState();
@@ -478,22 +503,29 @@
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
       let kneeAngle = null;
+      let kneeInfo = null;
       if (results.poseLandmarks && phase === 'testing') {
-        const kneeInfo = getKneeAngle(results.poseLandmarks);
-        kneeAngle = kneeInfo.angle;
+        kneeInfo = getKneeAngle(results.poseLandmarks);
+        kneeAngle = kneeInfo.confidenceOk ? kneeInfo.angle : null;
 
-        if (kneeAngle != null) {
+        if (kneeInfo.confidenceOk && kneeAngle != null) {
           let newState = currentState;
           if (kneeAngle < ANGLE_SIT) newState = 'Sit';
           else if (kneeAngle > ANGLE_STAND) newState = 'Stand';
 
           if (newState !== currentState) {
+            if (newState === 'Sit') {
+              lastSitTime = performance.now();
+            }
             if (currentState === 'Sit' && newState === 'Stand') {
-              repCount = Math.min(repCount + 1, TARGET_COUNT);
-              speak(repCount + ' 下');
-              if (repCount >= TARGET_COUNT) {
-                endTime = performance.now();
-                showResult();
+              const sitDuration = lastSitTime != null ? performance.now() - lastSitTime : 0;
+              if (sitDuration >= SIT_MIN_DURATION_MS) {
+                repCount = Math.min(repCount + 1, TARGET_COUNT);
+                speak(repCount + ' 下');
+                if (repCount >= TARGET_COUNT) {
+                  endTime = performance.now();
+                  showResult();
+                }
               }
             }
             currentState = newState;
@@ -512,6 +544,13 @@
       }
 
       if (phase === 'testing') {
+        const lowConfidenceHint = document.getElementById('lowConfidenceHint');
+        const showLowConfidence = !results.poseLandmarks || (kneeInfo && !kneeInfo.confidenceOk);
+        if (lowConfidenceHint) {
+          if (showLowConfidence) lowConfidenceHint.classList.remove('hidden');
+          else lowConfidenceHint.classList.add('hidden');
+        }
+
         counterDiv.innerHTML = '<span>' + repCount + '</span> / ' + TARGET_COUNT;
         if (timerAnimationId == null) timerAnimationId = requestAnimationFrame(updateTimer);
 
