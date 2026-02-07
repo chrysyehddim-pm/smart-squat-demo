@@ -191,7 +191,7 @@
         <div class="step"><span class="emoji">🪑</span><span>步驟 2：請在距離手機約 2~3 公尺處準備一張椅子。</span></div>
         <div class="step"><span class="emoji">🧍</span><span>步驟 3：確保您的全身（側面視角）都在畫面中。</span></div>
       </div>
-      <button type="button" id="btnTutorialOk">我知道了，開始輸入資料</button>
+      <button type="button" id="btnTutorialOk">我準備好了</button>
     </div>
   </div>
 
@@ -613,6 +613,7 @@
     btnTutorialOk.addEventListener('click', () => {
       overlayTutorial.classList.remove('active');
       overlayWelcome.classList.add('active');
+      startCamera(false);
     });
 
     btnStart.addEventListener('click', () => {
@@ -674,7 +675,6 @@
       startCamera(true);
     });
 
-    startCamera(false);
   </script>
 </body>
 </html>
