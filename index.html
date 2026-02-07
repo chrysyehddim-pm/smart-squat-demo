@@ -99,6 +99,21 @@
       display: none;
     }
 
+    /* 練習模式頂部狀態列（藍色醒目） */
+    #practiceBanner {
+      position: absolute; top: clamp(16px, 4vw, 24px); left: 50%; transform: translateX(-50%);
+      color: #4fc3f7; font-size: clamp(18px, 4vw, 24px); font-weight: bold;
+      background: rgba(0,0,0,0.8); padding: clamp(12px, 3vw, 18px) clamp(24px, 5vw, 36px);
+      border-radius: 16px; z-index: 100; text-align: center; white-space: nowrap;
+    }
+
+    /* 練習完成覆蓋（綠色勾勾） */
+    #practiceCompleteOverlay {
+      position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center;
+      background: rgba(0,0,0,0.7); z-index: 155; pointer-events: none;
+    }
+    #practiceCompleteOverlay .checkText { color: #00ff88; font-size: clamp(32px, 8vw, 48px); font-weight: bold; margin-top: 16px; }
+
     /* 計數器 + 計時 */
     #counter {
       position: absolute; top: clamp(16px, 4vw, 24px); left: clamp(16px, 4vw, 24px);
@@ -209,6 +224,8 @@
     <div id="countdownNum"></div>
   </div>
 
+  <div id="practiceBanner" class="hidden">🔵 練習模式：請試著做 1 次起立坐下</div>
+  <div id="practiceCompleteOverlay" class="hidden"><span style="font-size:80px;">✅</span><span class="checkText">練習完成</span></div>
   <div id="counter" class="hidden">0 / 5</div>
   <div id="timer" class="hidden">0.00 s</div>
   <div id="stateText" class="hidden">請坐下 🪑</div>
@@ -298,7 +315,9 @@
     let userAge = 65;
     let useFrontCamera = true;
     let cameraInstance = null;
-    let lastSitTime = null;  // 進入「坐下」狀態的時間，用於防抖
+    let lastSitTime = null;
+    let isPracticeMode = false;
+    let practiceTransitioning = false;
 
     function speak(text) {
       if (isMuted || !text || !text.trim()) return;
@@ -409,7 +428,7 @@
     inputAge.addEventListener('blur', setStartButtonState);
     setStartButtonState();
 
-    function startCountdown() {
+    function startPracticeMode() {
       const v = validateParticipant();
       if (!v.ok) {
         alert(v.msg);
@@ -417,9 +436,33 @@
       }
       userName = v.name;
       userAge = v.age;
+      isPracticeMode = true;
+      practiceTransitioning = false;
+      repCount = 0;
+      currentState = null;
+      lastSitTime = null;
 
+      phase = 'testing';
+      overlayWelcome.classList.remove('active');
+      counterDiv.classList.add('hidden');
+      timerDiv.classList.add('hidden');
+      const practiceBanner = document.getElementById('practiceBanner');
+      if (practiceBanner) {
+        practiceBanner.classList.remove('hidden');
+        practiceBanner.textContent = '🔵 練習模式：請試著做 1 次起立坐下';
+      }
+      stateTextDiv.classList.remove('hidden');
+      angleDebugDiv.classList.remove('hidden');
+      document.getElementById('lowConfidenceHint')?.classList.add('hidden');
+
+      speak('現在是練習模式。請退後，做一次起立坐下讓我確認。');
+    }
+
+    function startCountdown() {
       phase = 'countdown';
       overlayWelcome.classList.remove('active');
+      document.getElementById('practiceBanner')?.classList.add('hidden');
+      document.getElementById('practiceCompleteOverlay')?.classList.add('hidden');
       overlayCountdown.classList.add('active');
       countdownNum.style.display = 'block';
 
@@ -460,6 +503,7 @@
     }
 
     async function uploadRecord(seconds) {
+      if (isPracticeMode) return;
       uploadStatus.textContent = '☁️ 數據上傳中...';
       if (!db) {
         uploadStatus.textContent = '';
@@ -512,6 +556,8 @@
       startTime = null;
       endTime = null;
       lastSitTime = null;
+      isPracticeMode = false;
+      practiceTransitioning = false;
       if (timerAnimationId != null) {
         cancelAnimationFrame(timerAnimationId);
         timerAnimationId = null;
@@ -520,6 +566,8 @@
       resultCard.classList.remove('show');
       uploadStatus.textContent = '';
       overlayWelcome.classList.add('active');
+      document.getElementById('practiceBanner')?.classList.add('hidden');
+      document.getElementById('practiceCompleteOverlay')?.classList.add('hidden');
       counterDiv.classList.add('hidden');
       timerDiv.classList.add('hidden');
       stateTextDiv.classList.add('hidden');
@@ -549,7 +597,7 @@
         kneeInfo = getKneeAngle(results.poseLandmarks);
         kneeAngle = kneeInfo.confidenceOk ? kneeInfo.angle : null;
 
-        if (kneeInfo.confidenceOk && kneeAngle != null) {
+        if (kneeInfo.confidenceOk && kneeAngle != null && !practiceTransitioning) {
           let newState = currentState;
           if (kneeAngle < ANGLE_SIT) newState = 'Sit';
           else if (kneeAngle > ANGLE_STAND) newState = 'Stand';
@@ -557,15 +605,36 @@
           if (newState !== currentState) {
             if (newState === 'Sit') {
               lastSitTime = performance.now();
+              if (isPracticeMode) speak('很好，請起立。');
             }
             if (currentState === 'Sit' && newState === 'Stand') {
               const sitDuration = lastSitTime != null ? performance.now() - lastSitTime : 0;
               if (sitDuration >= SIT_MIN_DURATION_MS) {
                 repCount = Math.min(repCount + 1, TARGET_COUNT);
-                speak(repCount + ' 下');
-                if (repCount >= TARGET_COUNT) {
-                  endTime = performance.now();
-                  showResult();
+
+                if (isPracticeMode) {
+                  if (repCount >= 1) {
+                    practiceTransitioning = true;
+                    speak('練習成功！姿勢正確。3 秒後開始正式測驗。');
+                    const overlay = document.getElementById('practiceCompleteOverlay');
+                    if (overlay) overlay.classList.remove('hidden');
+                    setTimeout(() => {
+                      if (overlay) overlay.classList.add('hidden');
+                      document.getElementById('practiceBanner')?.classList.add('hidden');
+                      isPracticeMode = false;
+                      repCount = 0;
+                      currentState = null;
+                      lastSitTime = null;
+                      practiceTransitioning = false;
+                      startCountdown();
+                    }, 3000);
+                  }
+                } else {
+                  speak(repCount + ' 下');
+                  if (repCount >= TARGET_COUNT) {
+                    endTime = performance.now();
+                    showResult();
+                  }
                 }
               }
             }
@@ -592,10 +661,19 @@
           else lowConfidenceHint.classList.add('hidden');
         }
 
-        counterDiv.innerHTML = '<span>' + repCount + '</span> / ' + TARGET_COUNT;
-        if (timerAnimationId == null) timerAnimationId = requestAnimationFrame(updateTimer);
+        if (isPracticeMode) {
+          if (document.getElementById('practiceBanner')) document.getElementById('practiceBanner').classList.remove('hidden');
+          counterDiv.classList.add('hidden');
+          timerDiv.classList.add('hidden');
+        } else {
+          document.getElementById('practiceBanner')?.classList.add('hidden');
+          counterDiv.classList.remove('hidden');
+          timerDiv.classList.remove('hidden');
+          counterDiv.innerHTML = '<span>' + repCount + '</span> / ' + TARGET_COUNT;
+          if (timerAnimationId == null) timerAnimationId = requestAnimationFrame(updateTimer);
+        }
 
-        if (repCount >= TARGET_COUNT) {
+        if (repCount >= TARGET_COUNT && !isPracticeMode) {
           // showResult 已在上方呼叫
         } else if (currentState === 'Sit') {
           stateTextDiv.textContent = '請起立 ⬆️';
@@ -623,7 +701,7 @@
 
     btnStart.addEventListener('click', () => {
       if (phase !== 'welcome') return;
-      startCountdown();
+      startPracticeMode();
     });
 
     btnRetry.addEventListener('click', resetTest);
