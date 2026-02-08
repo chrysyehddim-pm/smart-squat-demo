@@ -466,6 +466,31 @@
     inputAge.addEventListener('blur', setStartButtonState);
     setStartButtonState();
 
+    (function applyUrlParams() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const nameParam = urlParams.get('name');
+      const ageParam = urlParams.get('age');
+      let filledName = false;
+      let filledAge = false;
+      if (nameParam && (nameParam.trim() !== '')) {
+        inputName.value = nameParam.trim();
+        filledName = true;
+      }
+      if (ageParam != null && ageParam !== '') {
+        const ageNum = parseInt(ageParam, 10);
+        if (Number.isFinite(ageNum) && ageNum >= 1 && ageNum <= 120) {
+          inputAge.value = String(ageNum);
+          filledAge = true;
+        }
+      }
+      if (filledName || filledAge) setStartButtonState();
+      if (filledName && filledAge) {
+        inputName.disabled = true;
+        inputAge.disabled = true;
+        setTimeout(function () { btnStart.focus(); }, 100);
+      }
+    })();
+
     function startPracticeMode() {
       const v = validateParticipant();
       if (!v.ok) {
@@ -613,6 +638,8 @@
       document.getElementById('lowConfidenceHint')?.classList.add('hidden');
       timerDiv.textContent = '0.00 s';
       counterDiv.innerHTML = '<span>0</span> / ' + TARGET_COUNT;
+      inputName.disabled = false;
+      inputAge.disabled = false;
       setStartButtonState();
     }
 
