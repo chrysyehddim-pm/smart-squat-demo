@@ -356,6 +356,14 @@
     let lastSitTime = null;
     let isPracticeMode = false;
     let practiceTransitioning = false;
+    // 正式測驗用的逐次分析資料
+    let repTimestamps = [];   // 每一下完成時的時間戳（Date.now()）
+    let repDurations = [];    // 每一下耗時（秒）
+    let repMaxAngles = [];    // 每一下過程中的最大角度（站立）
+    let repMinAngles = [];    // 每一下過程中的最小角度（坐下）
+    let tempMaxAngle = null;  // 當前這一下的暫存最大角度
+    let tempMinAngle = null;  // 當前這一下的暫存最小角度
+    let lastRepTimestamp = null; // 上一次完成一下時的時間（performance.now）
 
     function speak(text) {
       if (isMuted || !text || !text.trim()) return;
@@ -522,6 +530,15 @@
     }
 
     function startCountdown() {
+      // 正式測驗開始前，重置逐次分析資料
+      repTimestamps = [];
+      repDurations = [];
+      repMaxAngles = [];
+      repMinAngles = [];
+      tempMaxAngle = null;
+      tempMinAngle = null;
+      lastRepTimestamp = null;
+
       phase = 'countdown';
       overlayWelcome.classList.remove('active');
       document.getElementById('practiceBanner')?.classList.add('hidden');
@@ -579,7 +596,12 @@
           duration: Math.round(seconds * 100) / 100,
           timestamp: serverTimestamp(),
           result: getResultCode(seconds),
-          platform: 'Web Demo'
+          platform: 'Web Demo',
+          analysis: {
+            rep_durations: repDurations.map((v) => Math.round(v * 100) / 100),
+            rep_max_angles: repMaxAngles,
+            rep_min_angles: repMinAngles
+          }
         });
         uploadStatus.textContent = '✅ 數據已雲端儲存';
       } catch (err) {
@@ -662,6 +684,12 @@
         kneeInfo = getKneeAngle(results.poseLandmarks);
         kneeAngle = kneeInfo.confidenceOk ? kneeInfo.angle : null;
 
+        // 只在正式測驗期間記錄這一下的最大/最小角度
+        if (!isPracticeMode && kneeInfo.confidenceOk && kneeAngle != null) {
+          if (tempMaxAngle == null || kneeAngle > tempMaxAngle) tempMaxAngle = kneeAngle;
+          if (tempMinAngle == null || kneeAngle < tempMinAngle) tempMinAngle = kneeAngle;
+        }
+
         if (kneeInfo.confidenceOk && kneeAngle != null && !practiceTransitioning) {
           let newState = currentState;
           if (kneeAngle < ANGLE_SIT) newState = 'Sit';
@@ -695,6 +723,20 @@
                     }, 3000);
                   }
                 } else {
+                  // 正式測驗：完成一次動作時，記錄逐次分析資料
+                  const nowPerf = performance.now();
+                  if (startTime != null) {
+                    const base = lastRepTimestamp != null ? lastRepTimestamp : startTime;
+                    const durSec = (nowPerf - base) / 1000;
+                    repDurations.push(Math.round(durSec * 100) / 100);
+                  }
+                  repTimestamps.push(Date.now());
+                  repMaxAngles.push(tempMaxAngle != null ? tempMaxAngle : (kneeAngle ?? null));
+                  repMinAngles.push(tempMinAngle != null ? tempMinAngle : (kneeAngle ?? null));
+                  lastRepTimestamp = nowPerf;
+                  tempMaxAngle = null;
+                  tempMinAngle = null;
+
                   speak(repCount + ' 下');
                   if (repCount >= TARGET_COUNT) {
                     endTime = performance.now();
